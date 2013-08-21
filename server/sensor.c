@@ -47,7 +47,7 @@ DataPoint GetData(int sensor_id)
  */
 void Destroy(Sensor * s)
 {
-	// Maybe move the binary file into long term file storage?
+	// Maybe move the file into long term file storage?
 	fclose(s->file);
 }
 
@@ -60,9 +60,12 @@ void Destroy(Sensor * s)
 void Sensor_Init(Sensor * s, int id)
 {
 	s->write_index = 0;
-	s->read_offset = 0;
 	s->id = id;
-
+	
+	s->write_buffer = s->buffers[0];
+	s->read_index = 0;
+	s->read_buffer = NULL;
+	
 	#define FILENAMESIZE BUFSIZ
 	char filename[FILENAMESIZE];
 	//if (s->id >= pow(10, FILENAMESIZE))
@@ -73,11 +76,15 @@ void Sensor_Init(Sensor * s, int id)
 
 	pthread_mutex_init(&(s->mutex), NULL);
 		
-	sprintf(filename, "%d", s->id);
+	sprintf(filename, "%d.csv", s->id);
 	unlink(filename); //TODO: Move old files somewhere
 
-	s->file = fopen(filename, "a+b"); // open binary file
-	Log(LOGDEBUG, "Initialised sensor %d; binary file is \"%s\"", id, filename);
+	s->file = fopen(filename, "a+"); // open file
+	if (!s->file)
+	{
+		Fatal("Failed to open file %s for writing.", filename);
+	}
+	Log(LOGDEBUG, "Initialised sensor %d; file is \"%s\"", id, filename);
 }
 
 
@@ -89,9 +96,9 @@ void Sensor_Init(Sensor * s, int id)
 void * Sensor_Main(void * arg)
 {
 	Sensor * s = (Sensor*)(arg);
-
 	while (true) //TODO: Exit condition
 	{
+		int i;
 		// The sensor will write data to a buffer until it is full
 		// Then it will open a file and dump the buffer to the end of it.
 		// Rinse and repeat
@@ -102,7 +109,7 @@ void * Sensor_Main(void * arg)
 
 		while (s->write_index < SENSOR_DATABUFSIZ)
 		{
-			s->buffer[s->write_index] = GetData(s->id);
+			s->write_buffer[s->write_index] = GetData(s->id);
 			s->write_index += 1;
 		}
 
@@ -110,16 +117,22 @@ void * Sensor_Main(void * arg)
 
 		// CRITICAL SECTION (no threads should be able to read/write the file at the same time)
 		pthread_mutex_lock(&(s->mutex));
-			fseek(s->file, 0, SEEK_END);
-			int amount_written = fwrite(s->buffer, sizeof(DataPoint), SENSOR_DATABUFSIZ, s->file);
-			if (amount_written != SENSOR_DATABUFSIZ)
-			{
-				Fatal("Wrote %d data points and expected to write %d to \"%s\" - %s", amount_written, SENSOR_DATABUFSIZ, strerror(errno));
+			s->read_index = 0;
+			s->read_buffer = s->write_buffer;
+			if (s->write_buffer == s->buffers[0]) {
+				s->write_buffer = s->buffers[1];
+			} else {
+				s->write_buffer = s->buffers[0];
 			}
-			//Log(LOGDEBUG, "Wrote %d data points for sensor %d", amount_written, s->id);
+			
+			for (i = 0; i < SENSOR_DATABUFSIZ; i++)
+			{
+				fprintf(s->file, "%f, %f\n", s->read_buffer[i].time, s->read_buffer[i].value);
+			}
+			fflush(s->file);
 		pthread_mutex_unlock(&(s->mutex));
 		// End of critical section
-
+		
 		s->write_index = 0; // reset position in buffer
 		
 	}
@@ -136,13 +149,18 @@ void * Sensor_Main(void * arg)
 int Sensor_Query(Sensor * s, DataPoint * buffer, int bufsiz)
 {
 	int amount_read = 0;
-	//CRITICAL SECTION (Don't access file while sensor thread is writing to it!)
-	pthread_mutex_lock(&(s->mutex));
+	if (s->read_buffer && s->read_index < SENSOR_DATABUFSIZ) {
+		amount_read = SENSOR_DATABUFSIZ - s->read_index;
+		if (amount_read > bufsiz) {
+			amount_read = bufsiz;
+		}
 		
-		fseek(s->file, -bufsiz*sizeof(DataPoint), SEEK_END);
-		amount_read = fread(buffer, sizeof(DataPoint), bufsiz, s->file);
-		//Log(LOGDEBUG, "Read %d data points", amount_read);		
-	pthread_mutex_unlock(&(s->mutex));
+		//CRITICAL SECTION (Don't access file while sensor thread is writing to it!)
+		pthread_mutex_lock(&(s->mutex));
+			memcpy(buffer, s->read_buffer + s->read_index, sizeof(DataPoint) * amount_read);
+			s->read_index += amount_read;	
+		pthread_mutex_unlock(&(s->mutex));
+	}
 	return amount_read;
 }
 

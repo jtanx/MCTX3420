@@ -11,7 +11,7 @@
 /** Number of data points to keep in sensor buffers **/
 #define SENSOR_DATABUFSIZ 10
 
-#define SENSOR_QUERYBUFSIZ 10
+#define SENSOR_QUERYBUFSIZ 7
 
 /** Number of sensors **/
 #define NUMSENSORS 1
@@ -30,13 +30,17 @@ typedef struct
 {
 	/** ID number of the sensor **/
 	enum {SENSOR_TEST0=0, SENSOR_TEST1=1, SENSOR_NONE} id;
-	/** Buffer to store data from the sensor **/
-	DataPoint buffer[SENSOR_DATABUFSIZ];
+	/** Buffers to read and store data from the sensor **/
+	DataPoint buffers[2][SENSOR_DATABUFSIZ];
+	/** Pointer to the current buffer to write to **/
+	DataPoint *write_buffer;
+	/** Pointer to the current buffer to read from **/
+	const DataPoint  *read_buffer;
+	/** Index of the last point read from the read buffer **/
+	int read_index;
 	/** Index of last point written in the data buffer **/
 	int write_index;
-	/** Offset position in binary file for query thread to read from**/
-	int read_offset;
-	/** Binary file to write data into when buffer is full **/
+	/** File to write data into for logging purposes **/
 	FILE * file;
 	/** Thread running the sensor **/
 	pthread_t thread;
