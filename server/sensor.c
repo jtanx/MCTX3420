@@ -124,14 +124,13 @@ void * Sensor_Main(void * arg)
 			} else {
 				s->write_buffer = s->buffers[0];
 			}
-			
-			for (i = 0; i < SENSOR_DATABUFSIZ; i++)
-			{
-				fprintf(s->file, "%f, %f\n", s->read_buffer[i].time, s->read_buffer[i].value);
-			}
 		pthread_mutex_unlock(&(s->mutex));
 		// End of critical section
 		
+		for (i = 0; i < SENSOR_DATABUFSIZ; i++)
+		{
+			fprintf(s->file, "%f, %f\n", s->read_buffer[i].time, s->read_buffer[i].value);
+		}
 		fflush(s->file);
 		s->write_index = 0; // reset position in buffer
 		
