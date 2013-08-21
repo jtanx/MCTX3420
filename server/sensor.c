@@ -129,10 +129,10 @@ void * Sensor_Main(void * arg)
 			{
 				fprintf(s->file, "%f, %f\n", s->read_buffer[i].time, s->read_buffer[i].value);
 			}
-			fflush(s->file);
 		pthread_mutex_unlock(&(s->mutex));
 		// End of critical section
 		
+		fflush(s->file);
 		s->write_index = 0; // reset position in buffer
 		
 	}
