@@ -19,10 +19,8 @@
 #include "pin_test.h"
 #include "login.h"
 
-/**The time period (in seconds) before the control key expires */
+/** The time period (in seconds) before the control key expires **/
 #define CONTROL_TIMEOUT 180
-
-
 
 /**
  * Identifies build information and the current API version to the user.
@@ -83,7 +81,7 @@ static void IdentifyHandler(FCGIContext *context, char *params) {
  */ 
 void FCGI_LockControl(FCGIContext *context, bool force) {
 	time_t now = time(NULL);
-	bool expired = now - context->control_timestamp > CONTROL_TIMEOUT;
+	bool expired = (now - context->control_timestamp) > CONTROL_TIMEOUT;
 	
 	if (force || !*(context->control_key) || expired) 
 	{
@@ -427,6 +425,31 @@ char *FCGI_EscapeText(char *buf)
 	return buf;
 }
 
+static char *ExtractControlKey(char *params, char control_key[FCGI_CKEY_LENGTH + 1])
+{
+	char *start = strstr(params, "key="), *end;
+
+	if (start) {
+		//Search for the next portion, if it exists.
+		if ((end = strchr(start, '&'))) { 
+			*end++ = 0;
+		} else {
+			end = "";
+		}
+
+		//Copy into the buffer
+		snprintf(control_key, FCGI_CKEY_LENGTH + 1, "%s", start + 4);
+		//Move the remaining portion over the key (remove the key from params)
+		if (*end) {
+			size_t move_length = strlen(end) + 1; //Copy the NUL byte too
+			memmove(start, end, sizeof(char) * move_length);
+		} else {
+			*start = 0; //Nothing to move
+		}
+	}
+	return params;
+}
+
 /**
  * Main FCGI request loop that receives/responds to client requests.
  * @param data Reserved.
@@ -441,18 +464,18 @@ void * FCGI_RequestLoop (void *data)
 	while (FCGI_Accept() >= 0) {
 		
 		ModuleHandler module_handler = NULL;
-		char module[BUFSIZ], params[BUFSIZ], cookie[BUFSIZ];
+		char module[BUFSIZ], params[BUFSIZ], control_key[FCGI_CKEY_LENGTH + 1];
 		
 		//strncpy doesn't zero-truncate properly
 		snprintf(module, BUFSIZ, "%s", getenv("DOCUMENT_URI_LOCAL"));
 		snprintf(params, BUFSIZ, "%s", getenv("QUERY_STRING"));
-		snprintf(cookie, BUFSIZ, "%s", getenv("COOKIE_STRING"));
+
+		ExtractControlKey(params, control_key);
+		snprintf(control_key, FCGI_CKEY_LENGTH + 1, "%s", getenv("COOKIE_STRING"));
 
 		Log(LOGDEBUG, "Got request #%d - Module %s, params %s", context.response_number, module, params);
-		Log(LOGDEBUG, "Cookie: %s", cookie);
+		Log(LOGDEBUG, "Cookie: %s", control_key);
 
-
-		
 		//Remove trailing slashes (if present) from module query
 		size_t lastchar = strlen(module) - 1;
 		if (lastchar > 0 && module[lastchar] == '/')
@@ -485,19 +508,17 @@ void * FCGI_RequestLoop (void *data)
 
 		context.current_module = module;
 		context.response_number++;
-		
-
 
 		if (module_handler) 
 		{
 			if (module_handler != Login_Handler)
 			{
-				if (cookie[0] == '\0')
+				if (control_key[0] == '\0')
 				{
 					FCGI_RejectJSON(&context, "Please login.");
 					continue;
 				}
-				if (!FCGI_HasControl(&context, cookie))
+				if (!FCGI_HasControl(&context, control_key))
 				{
 					FCGI_RejectJSON(&context, "Invalid control key.");
 					continue;	
@@ -510,9 +531,6 @@ void * FCGI_RequestLoop (void *data)
 		{
 			FCGI_RejectJSON(&context, "Unhandled module");
 		}
-		
-
-		
 	}
 
 	Log(LOGDEBUG, "Thread exiting.");

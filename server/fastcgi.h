@@ -21,6 +21,7 @@ typedef enum StatusCodes {
 	STATUS_ALREADYEXISTS = -4
 } StatusCodes;
 
+/* Types and macros used for FCGI_ParseRequest */
 #define FCGI_PARAM_REQUIRED (1 << 0)
 #define FCGI_PARAM_RECEIVED (1 << 1)
 #define FCGI_BOOL_T (1 << 2)
@@ -33,6 +34,9 @@ typedef enum StatusCodes {
 #define FCGI_RECEIVED(x) ((x) & FCGI_PARAM_RECEIVED)
 #define FCGI_TYPE(x) ((x) & ~(FCGI_PARAM_REQUIRED | FCGI_PARAM_RECEIVED))
 
+/** The length of the control key **/
+#define FCGI_CKEY_LENGTH 40
+
 typedef struct FCGIValue {
 	const char *key;
 	void *value;
@@ -44,7 +48,7 @@ typedef struct
 {
 	/**The time of last valid user access possessing the control key*/
 	time_t control_timestamp;
-	char control_key[41];
+	char control_key[FCGI_CKEY_LENGTH + 1];
 	char control_ip[16];
 	/**The name of the current module**/
 	const char *current_module;
